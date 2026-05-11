@@ -1,0 +1,231 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { OfficialIssueCard } from "./official-issue-card";
+import { ResolvedIssueCard } from "./resolved-issue-card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  RefreshCw,
+  AlertCircle,
+  Loader2,
+  Briefcase,
+  CheckCircle2,
+  AlertTriangle,
+} from "lucide-react";
+
+export default function OfficialDashboard() {
+  const [pendingIssues, setPendingIssues] = useState<any[]>([]);
+  const [appealedIssues, setAppealedIssues] = useState<any[]>([]); // <-- NEW STATE
+  const [resolvedIssues, setResolvedIssues] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchIssues = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const [assignedRes, resolvedRes] = await Promise.all([
+        fetch(`/api/issues/assigned`),
+        fetch(`/api/issues/assigned?status=resolved`),
+      ]);
+
+      if (!assignedRes.ok || !resolvedRes.ok) {
+        throw new Error("Failed to fetch issues");
+      }
+
+      const assignedData = await assignedRes.json();
+      const resolvedData = await resolvedRes.json();
+
+      const allAssigned = assignedData.data || [];
+
+      // --- THE FIX: Filter accurately based on DB statuses ---
+      // 'under_review' means it was appealed or escalated
+      const appealed = allAssigned.filter(
+        (issue: any) => issue.status === "under_review",
+      );
+
+      // Normal tasks are just active or being worked on
+      const regularPending = allAssigned.filter(
+        (issue: any) =>
+          issue.status === "active" || issue.status === "under_progress",
+      );
+
+      setPendingIssues(regularPending);
+      setAppealedIssues(appealed);
+      setResolvedIssues(resolvedData.data || []);
+    } catch (error) {
+      console.error("Error fetching issues:", error);
+      setError("Failed to load your tasks.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchIssues();
+  }, [fetchIssues]);
+
+  if (error) {
+    return (
+      <Card className="border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950">
+        <CardContent className="py-6 flex items-center gap-4">
+          <AlertCircle className="h-8 w-8 text-red-500" />
+          <div>
+            <h3 className="text-lg font-semibold text-red-900 dark:text-red-300">
+              Error
+            </h3>
+            <p className="text-red-700 dark:text-red-400">{error}</p>
+          </div>
+          <Button onClick={fetchIssues} variant="outline" className="ml-auto">
+            Try Again
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="border-primary/20 dark:border-primary/20 shadow-sm bg-primary/5 dark:bg-primary/5">
+      <CardHeader className="pb-4 border-b border-primary/10 dark:border-primary/10">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Briefcase className="h-5 w-5 text-primary" />
+            <CardTitle className="text-xl text-primary">
+              Resolution Desk
+            </CardTitle>
+          </div>
+          <Button
+            onClick={fetchIssues}
+            variant="ghost"
+            size="sm"
+            className="text-primary hover:bg-primary/10"
+          >
+            <RefreshCw
+              className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`}
+            />
+            Refresh
+          </Button>
+        </div>
+      </CardHeader>
+
+      <CardContent className="pt-6">
+        {/* Default to appealed tasks if they exist! */}
+        <Tabs
+          defaultValue={appealedIssues.length > 0 ? "appealed" : "pending"}
+          className="w-full"
+        >
+          {/* UPDATED: Mobile-responsive scrollable tabs */}
+          <TabsList className="flex w-full h-auto overflow-x-auto justify-start md:grid md:grid-cols-3 mb-6 p-1 gap-2 md:gap-0 snap-x">
+            <TabsTrigger
+              value="pending"
+              className="whitespace-nowrap shrink-0 snap-start"
+            >
+              Pending Tasks
+              <Badge variant="secondary" className="ml-2 bg-background">
+                {pendingIssues.length}
+              </Badge>
+            </TabsTrigger>
+
+            {/* --- NEW APPEALED TAB --- */}
+            <TabsTrigger
+              value="appealed"
+              className="data-[state=active]:text-red-600 dark:data-[state=active]:text-red-400 whitespace-nowrap shrink-0 snap-start"
+            >
+              Appealed Tasks
+              {appealedIssues.length > 0 ? (
+                <Badge
+                  variant="destructive"
+                  className="ml-2 bg-red-500 animate-pulse"
+                >
+                  {appealedIssues.length}
+                </Badge>
+              ) : (
+                <Badge variant="secondary" className="ml-2 bg-background">
+                  0
+                </Badge>
+              )}
+            </TabsTrigger>
+
+            <TabsTrigger
+              value="resolved"
+              className="whitespace-nowrap shrink-0 snap-start"
+            >
+              Resolved History
+              <Badge variant="secondary" className="ml-2 bg-background">
+                {resolvedIssues.length}
+              </Badge>
+            </TabsTrigger>
+          </TabsList>
+
+          {loading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : (
+            <>
+              {/* PENDING TAB */}
+              <TabsContent value="pending" className="mt-0">
+                {pendingIssues.length === 0 ? (
+                  <div className="text-center py-12 border-2 border-dashed border-primary/20 rounded-lg text-muted-foreground">
+                    You currently have no new assigned issues. Great job!
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                    {pendingIssues.map((issue) => (
+                      <OfficialIssueCard
+                        key={issue.id}
+                        issue={issue}
+                        onResolved={fetchIssues}
+                      />
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* --- NEW: APPEALED TAB CONTENT --- */}
+              <TabsContent value="appealed" className="mt-0">
+                {appealedIssues.length === 0 ? (
+                  <div className="text-center py-12 border-2 border-dashed border-green-500/20 rounded-lg text-muted-foreground">
+                    <CheckCircle2 className="mx-auto h-8 w-8 text-green-500/50 mb-3" />
+                    Zero active appeals! Your repairs are passing citizen
+                    inspection.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                    {appealedIssues.map((issue) => (
+                      <OfficialIssueCard
+                        key={issue.id}
+                        issue={issue}
+                        onResolved={fetchIssues}
+                      />
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* RESOLVED TAB */}
+              <TabsContent value="resolved" className="mt-0">
+                {resolvedIssues.length === 0 ? (
+                  <div className="text-center py-12 border-2 border-dashed border-primary/20 rounded-lg text-muted-foreground">
+                    <CheckCircle2 className="mx-auto h-8 w-8 text-muted-foreground/50 mb-3" />
+                    You haven't resolved any issues yet.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    {resolvedIssues.map((issue) => (
+                      <ResolvedIssueCard key={issue.id} issue={issue} />
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+            </>
+          )}
+        </Tabs>
+      </CardContent>
+    </Card>
+  );
+}
